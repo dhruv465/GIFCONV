@@ -18,14 +18,7 @@ app.use(cors({
 
 app.use(express.json());
 
-app.get("/", (req, res) => {
-  res.send("Hello from Node.js on Vercel!");
-});
 
-// Catch-all for undefined routes
-app.use((req, res) => {
-  res.status(404).send("Route not found");
-});
 // Serve static files (for accessing generated GIFs)
 app.use('/output', express.static(path.join('/tmp', 'output')));
 
@@ -189,6 +182,14 @@ app.post('/convert', upload.single('video'), async (req, res) => {
   }
 });
 
+app.get("/", (req, res) => {
+  res.send("Hello from Node.js on Vercel!");
+});
+
+// Catch-all for undefined routes
+app.use((req, res) => {
+  res.status(404).send("Route not found");
+});
 // Start the server
 const PORT = process.env.PORT || 3000; // Let Vercel choose the port
 app.listen(PORT, () => {
