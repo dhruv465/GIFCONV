@@ -1,3 +1,4 @@
+// VideoGifConverter.jsx
 import React, { useState } from 'react';
 import { Video, Wand2 } from 'lucide-react';
 import FileUpload from './FileUpload';
@@ -36,15 +37,14 @@ const VideoGifConverter = () => {
     formData.append('endTime', trimPoints.end.toString());
 
     try {
-      const response = await fetch('https://gifconv-backend.vercel.app/convert', {
+      const response = await fetch('http://localhost:5000/convert', {
         method: 'POST',
         body: formData,
       });
-
       const data = await response.json();
 
       if (response.ok) {
-        setGifUrl(`https://gifconv-backend.vercel.app${data.gifUrl}`);
+        setGifUrl(`http://localhost:5000${data.gifUrl}`);
       } else {
         alert(data.message || 'Error processing video');
       }
