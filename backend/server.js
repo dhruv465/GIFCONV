@@ -1,5 +1,7 @@
-import dotenv from 'dotenv';
-import express from 'express';
+import dotenv from 'dotenv'; // Load environment variables first
+dotenv.config();
+
+import express from 'express';import express from 'express';
 import multer from 'multer';
 import fs from 'fs';
 import path from 'path';
