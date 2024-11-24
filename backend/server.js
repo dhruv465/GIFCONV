@@ -16,14 +16,26 @@ const __dirname = path.dirname(__filename);
 
 const ffmpegSetup = () => {
   try {
-    // Set paths for `fluent-ffmpeg`
-    ffmpeg.setFfmpegPath(ffmpegPath);
-    ffmpeg.setFfprobePath(ffprobePath.path);
+    // Use Vercel's /tmp directory for ffmpeg binaries
+    const tmpFfmpegPath = '/tmp/ffmpeg';
+    const tmpFfprobePath = '/tmp/ffprobe';
 
-    console.log('FFmpeg and FFprobe paths set successfully:', {
-      ffmpegPath,
-      ffprobePath: ffprobePath.path,
-    });
+    // Check if the environment is Vercel
+    if (process.env.VERCEL) {
+      // Ensure ffmpeg and ffprobe binaries are available
+      fs.copyFileSync(ffmpegPath, tmpFfmpegPath);
+      fs.copyFileSync(ffprobePath.path, tmpFfprobePath);
+
+      ffmpeg.setFfmpegPath(tmpFfmpegPath);
+      ffmpeg.setFfprobePath(tmpFfprobePath);
+
+      console.log('FFmpeg and FFprobe binaries copied to /tmp and paths set successfully.');
+    } else {
+      // Use the default path for local development
+      ffmpeg.setFfmpegPath(ffmpegPath);
+      ffmpeg.setFfprobePath(ffprobePath.path);
+      console.log('FFmpeg and FFprobe paths set for local development.');
+    }
   } catch (error) {
     console.error('Error setting FFmpeg and FFprobe paths:', error);
     throw new Error('FFmpeg or FFprobe binaries not found. Install `ffmpeg-static` and `ffprobe-static`.');
