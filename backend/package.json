@@ -18,7 +18,7 @@
     "@google-cloud/speech": "^6.7.0",
     "@hapi/hawk": "^8.0.0",
     "axios": "^1.7.7",
-    "canvas": "^2.11.2",
+   
     "cloudinary": "^2.5.1",
     "cors": "^2.8.5",
     "dns": "^0.2.2",
