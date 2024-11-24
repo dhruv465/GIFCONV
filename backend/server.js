@@ -15,14 +15,14 @@ app.use(cors());
 app.use(express.json());
 
 // Serve static files (for accessing generated GIFs)
-app.use('/output', express.static(path.join('/tmp', 'output')));
+app.use('/output', express.static(path.join(__dirname, 'output')));
 
-// Setup multer for file uploads (use /tmp for temporary storage)
-const upload = multer({ dest: '/tmp/uploads' });
+// Setup multer for file uploads
+const upload = multer({ dest: 'uploads/' });
 
-// Create necessary directories in /tmp
-const uploadDir = path.join('/tmp', 'uploads');
-const outputDir = path.join('/tmp', 'output');
+// Create necessary directories
+const uploadDir = path.join(__dirname, 'uploads');
+const outputDir = path.join(__dirname, 'output');
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
 if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir);
 
