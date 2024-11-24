@@ -10,9 +10,8 @@ const cors = require('cors');
 const app = express();
 
 // Enable CORS and JSON parsing
-app.use(cors({
-  origin: 'https://video-to-gif-kohl.vercel.app',
-}));
+app.use(cors()); // Allow all origins
+
 app.use(express.json());
 
 app.get("/", (req, res) => {
