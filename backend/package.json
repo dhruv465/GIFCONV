@@ -8,7 +8,7 @@
     "dev": "nodemon server.js",
     "build": "echo 'No build step for backend' && exit 0",
     "test": "echo \"Error: no test specified\" && exit 1",
-    "vercel-build": "mkdir -p ffmpeg-static && cp node_modules/ffmpeg-static/ffmpeg ffmpeg-static/ && cp node_modules/ffprobe-static/bin/darwin/x64/ffprobe ffmpeg-static/"
+    "vercel-build": "mkdir -p ffmpeg-static && cp node_modules/ffmpeg-static/ffmpeg ffmpeg-static/"
   },
   "keywords": [],
   "author": "",
@@ -16,16 +16,12 @@
   "description": "",
   "dependencies": {
     "@google-cloud/speech": "^6.7.0",
-    "@hapi/hawk": "^8.0.0",
     "axios": "^1.7.7",
-   
     "cloudinary": "^2.5.1",
     "cors": "^2.8.5",
-    "dns": "^0.2.2",
     "dotenv": "^16.4.5",
     "express": "^4.21.1",
     "form-data": "^4.0.1",
-    "gifencoder": "^2.0.1",
     "multer": "^1.4.5-lts.1",
     "sharp": "^0.33.5",
     "streamifier": "^0.1.1",
