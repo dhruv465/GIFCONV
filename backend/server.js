@@ -5,7 +5,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import ffmpeg from 'fluent-ffmpeg';
-import ffmpegPath from 'ffmpeg-static';
+import ffmpegPath from 'ffmpeg-static'; // This is the correct path
 import ffprobePath from 'ffprobe-static';
 import { SpeechClient } from '@google-cloud/speech';
 import cors from 'cors';
@@ -16,26 +16,14 @@ const __dirname = path.dirname(__filename);
 
 const ffmpegSetup = () => {
   try {
-    // Use Vercel's /tmp directory for ffmpeg binaries
-    const tmpFfmpegPath = '/tmp/ffmpeg';
-    const tmpFfprobePath = '/tmp/ffprobe';
+    // Use the path from ffmpeg-static directly
+    ffmpeg.setFfmpegPath(ffmpegPath);
+    ffmpeg.setFfprobePath(ffprobePath.path);
 
-    // Check if the environment is Vercel
-    if (process.env.VERCEL) {
-      // Ensure ffmpeg and ffprobe binaries are available
-      fs.copyFileSync(ffmpegPath, tmpFfmpegPath);
-      fs.copyFileSync(ffprobePath.path, tmpFfprobePath);
-
-      ffmpeg.setFfmpegPath(tmpFfmpegPath);
-      ffmpeg.setFfprobePath(tmpFfprobePath);
-
-      console.log('FFmpeg and FFprobe binaries copied to /tmp and paths set successfully.');
-    } else {
-      // Use the default path for local development
-      ffmpeg.setFfmpegPath(ffmpegPath);
-      ffmpeg.setFfprobePath(ffprobePath.path);
-      console.log('FFmpeg and FFprobe paths set for local development.');
-    }
+    console.log('FFmpeg and FFprobe paths set successfully:', {
+      ffmpegPath,
+      ffprobePath: ffprobePath.path,
+    });
   } catch (error) {
     console.error('Error setting FFmpeg and FFprobe paths:', error);
     throw new Error('FFmpeg or FFprobe binaries not found. Install `ffmpeg-static` and `ffprobe-static`.');
@@ -48,14 +36,13 @@ ffmpegSetup();
 dotenv.config();
 const app = express();
 
-// Configure CORS middleware
+// Enable CORS and JSON parsing
 app.use(cors({
-  origin: 'https://video-to-gif-kohl.vercel.app',  // Allow only your frontend domain
-  methods: ['GET', 'POST', 'OPTIONS'],
+  origin: '*',
+  methods: ['GET', 'POST'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
-// Set up body parsing middleware
 app.use(express.json());
 
 // Serve static files (for accessing generated GIFs)
