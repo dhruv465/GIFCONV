@@ -1,264 +1,246 @@
 import dotenv from 'dotenv';
 import express from 'express';
 import multer from 'multer';
-import cors from 'cors';
-import { v2 as cloudinary } from 'cloudinary';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import ffmpeg from 'fluent-ffmpeg';
 import { SpeechClient } from '@google-cloud/speech';
-import streamifier from 'streamifier';
+import cors from 'cors';
+
+// ES modules fix for __dirname
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Set FFmpeg path for Vercel environment
+const ffmpegSetup = () => {
+  // For Vercel environment
+  if (process.env.VERCEL) {
+    // FFmpeg binaries should be in the project root under 'ffmpeg-static'
+    const ffmpegPath = path.join(process.cwd(), 'ffmpeg-static/ffmpeg');
+    const ffprobePath = path.join(process.cwd(), 'ffmpeg-static/ffprobe');
+    
+    if (fs.existsSync(ffmpegPath) && fs.existsSync(ffprobePath)) {
+      ffmpeg.setFfmpegPath(ffmpegPath);
+      ffmpeg.setFfprobePath(ffprobePath);
+      console.log('FFmpeg paths set successfully:', { ffmpegPath, ffprobePath });
+    } else {
+      console.error('FFmpeg binaries not found in expected location');
+    }
+  } else {
+    // For local development, assuming FFmpeg is installed globally
+    try {
+      const ffmpegPath = require('ffmpeg-static');
+      const ffprobePath = require('ffprobe-static').path;
+      ffmpeg.setFfmpegPath(ffmpegPath);
+      ffmpeg.setFfprobePath(ffprobePath);
+      console.log('FFmpeg paths set from node modules');
+    } catch (error) {
+      console.error('Error setting FFmpeg paths:', error);
+    }
+  }
+};
+
+// Initialize FFmpeg paths
+ffmpegSetup();
 
 dotenv.config();
-
-// Configure Cloudinary
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET
-});
-
 const app = express();
 
 // Enable CORS and JSON parsing
 app.use(cors({
-  origin: process.env.FRONTEND_URL || '*',
+  origin: '*',
   methods: ['GET', 'POST'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
 app.use(express.json());
 
-// Configure multer with improved error handling
-const storage = multer.memoryStorage();
-const upload = multer({ 
-  storage,
-  limits: {
-    fileSize: 50 * 1024 * 1024 // 50MB limit
-  }
-}).single('video');
+// Serve static files (for accessing generated GIFs)
+app.use('/output', express.static(path.join('/tmp', 'output')));
 
-// Initialize Google Cloud Speech Client with error handling
-let speechClient;
-try {
-  speechClient = new SpeechClient({
-    credentials: JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS)
-  });
-} catch (error) {
-  console.error('Failed to initialize Speech Client:', error);
-}
+// Setup multer for file uploads (use /tmp for temporary storage)
+const upload = multer({ dest: '/tmp/uploads' });
 
-// Helper function to upload buffer to Cloudinary with timeout
-const uploadToCloudinary = (buffer, options = {}) => {
+// Create necessary directories in /tmp
+const uploadDir = path.join('/tmp', 'uploads');
+const outputDir = path.join('/tmp', 'output');
+if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
+
+// Google Cloud Speech-to-Text client
+const speechClient = new SpeechClient();
+
+// Helper function to extract audio from video
+const extractAudio = (videoPath, startTime, duration, outputAudioPath) => {
   return new Promise((resolve, reject) => {
-    const uploadTimeout = setTimeout(() => {
-      reject(new Error('Upload timeout'));
-    }, 30000); // 30 second timeout
-
-    const uploadStream = cloudinary.uploader.upload_stream(
-      {
-        resource_type: 'video',
-        folder: 'video-uploads',
-        ...options
-      },
-      (error, result) => {
-        clearTimeout(uploadTimeout);
-        if (error) reject(error);
-        else resolve(result);
-      }
-    );
-
-    streamifier.createReadStream(buffer).pipe(uploadStream);
+    ffmpeg(videoPath)
+      .setStartTime(startTime)
+      .setDuration(duration)
+      .toFormat('mp3')
+      .audioCodec('libmp3lame')
+      .audioBitrate('128k')
+      .on('end', () => resolve(outputAudioPath))
+      .on('error', reject)
+      .save(outputAudioPath);
   });
 };
 
-// Improved GIF creation with error handling and optimization
-const createGIF = async (publicId, startTime, duration, text = null) => {
+// Helper function to transcribe audio using Google Cloud Speech-to-Text
+const transcribeAudio = async (audioFilePath) => {
+  const audioBuffer = fs.readFileSync(audioFilePath);
+  const audioBytes = audioBuffer.toString('base64');
+
+  const request = {
+    audio: {
+      content: audioBytes,
+    },
+    config: {
+      encoding: 'MP3',
+      sampleRateHertz: 16000,
+      languageCode: 'en-US',
+    },
+  };
+
   try {
-    const transformations = [
-      { start_offset: startTime },
-      { duration: duration },
-      { format: 'gif' },
-      { video_sampling: 10 },
-      { width: 500 },
-      { quality: 'auto' },
-      { fetch_format: 'auto' },
-      { flags: 'optimize' }
-    ];
+    const [response] = await speechClient.recognize(request);
+    const transcription = response.results
+      .map((result) => result.alternatives[0].transcript)
+      .join(' ');
+    console.log('Transcription received:', transcription);
+    return transcription;
+  } catch (err) {
+    console.error('Error transcribing audio:', err);
+    throw new Error('Failed to transcribe audio');
+  }
+};
 
-    if (text) {
-      // Split long text into multiple lines
-      const words = text.split(' ');
-      let lines = [];
-      let currentLine = '';
-      
-      words.forEach(word => {
-        if ((currentLine + word).length > 30) {
-          lines.push(currentLine.trim());
-          currentLine = word + ' ';
-        } else {
-          currentLine += word + ' ';
+// Helper function to create GIF with subtitles
+const createGIF = (videoPath, startTime, duration, transcription, outputPath) => {
+  return new Promise((resolve, reject) => {
+    const command = ffmpeg(videoPath)
+      .setStartTime(startTime)
+      .setDuration(duration)
+      .fps(10)
+      .size('2160x?')
+      .toFormat('gif');
+    
+    if (transcription) {
+      command.videoFilters({
+        filter: 'drawtext',
+        options: {
+          text: transcription,
+          fontcolor: 'white',
+          fontsize: 20,
+          x: '(w-text_w)/2',
+          y: 'h-(text_h*2)',
+          box: 1,
+          boxcolor: 'black@0.5',
+          boxborderw: 5
         }
       });
-      lines.push(currentLine.trim());
+    }
+    
+    command
+      .on('end', () => resolve(outputPath))
+      .on('error', reject)
+      .save(outputPath);
+  });
+};
 
-      transformations.push({
-        overlay: {
-          font_family: 'Arial',
-          font_size: 24,
-          text: lines.join('\n')
-        },
-        color: '#FFFFFF',
-        background: 'rgba(0,0,0,0.7)',
-        gravity: 'south',
-        y: 20
-      });
+// Route for converting uploaded video to GIF
+app.post('/convert', upload.single('video'), async (req, res) => {
+  const { startTime, endTime } = req.body;
+  let tempFilePath = null;
+  let outputAudioPath = null;
+
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: 'No video file uploaded' });
     }
 
-    return cloudinary.url(publicId, {
-      resource_type: 'video',
-      transformation: transformations
+    if (!startTime || !endTime || endTime <= startTime) {
+      return res.status(400).json({ message: 'Invalid start or end time' });
+    }
+
+    tempFilePath = req.file.path;
+    const duration = endTime - startTime;
+    const outputFilename = `output_${Date.now()}.gif`;
+    const outputPath = path.join(outputDir, outputFilename);
+    const audioFilename = `audio_${Date.now()}.mp3`;
+    outputAudioPath = path.join(outputDir, audioFilename);
+
+    console.log('Processing video:', {
+      tempFilePath,
+      startTime,
+      duration,
+      outputPath,
+      outputAudioPath
     });
-  } catch (error) {
-    console.error('Error creating GIF:', error);
-    throw new Error('Failed to create GIF');
-  }
-};
 
-// Improved transcription function with retry mechanism
-const getTranscription = async (videoUrl, startTime, duration, retries = 2) => {
-  for (let i = 0; i <= retries; i++) {
+    // Extract audio and get transcription
+    await extractAudio(tempFilePath, startTime, duration, outputAudioPath);
+    
+    let transcription = null;
     try {
-      const audioUrl = cloudinary.url(videoUrl.split('/').pop().split('.')[0], {
-        resource_type: 'video',
-        format: 'mp3',
-        start_offset: startTime,
-        duration: duration,
-        audio_codec: 'mp3'
-      });
-
-      const audioResponse = await fetch(audioUrl);
-      if (!audioResponse.ok) throw new Error('Failed to fetch audio');
-      
-      const audioBuffer = await audioResponse.arrayBuffer();
-      const audioContent = Buffer.from(audioBuffer).toString('base64');
-
-      const request = {
-        audio: { content: audioContent },
-        config: {
-          encoding: 'MP3',
-          sampleRateHertz: 16000,
-          languageCode: 'en-US',
-          enableAutomaticPunctuation: true,
-          model: 'default'
-        },
-      };
-
-      const [response] = await speechClient.recognize(request);
-      return response.results
-        .map(result => result.alternatives[0].transcript)
-        .join(' ');
-    } catch (error) {
-      if (i === retries) {
-        console.error('Transcription failed after retries:', error);
-        return null;
-      }
-      await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1)));
-    }
-  }
-};
-
-// Main conversion endpoint with improved error handling
-app.post('/convert', (req, res) => {
-  upload(req, res, async (err) => {
-    try {
-      if (err) {
-        return res.status(400).json({ 
-          error: 'Upload failed', 
-          message: err.message 
+      if (fs.existsSync(outputAudioPath) && fs.statSync(outputAudioPath).size > 0) {
+        console.log('Audio file extracted successfully:', {
+          path: outputAudioPath,
+          size: fs.statSync(outputAudioPath).size,
         });
+        transcription = await transcribeAudio(outputAudioPath);
+      } else {
+        console.error('Audio file is missing or empty');
       }
-
-      if (!req.file) {
-        return res.status(400).json({ error: 'No video file uploaded' });
-      }
-
-      const startTime = parseFloat(req.body.startTime) || 0;
-      const endTime = parseFloat(req.body.endTime);
-      
-      if (isNaN(endTime) || endTime <= startTime) {
-        return res.status(400).json({ error: 'Invalid time range' });
-      }
-
-      const duration = endTime - startTime;
-
-      console.log('Uploading video to Cloudinary...');
-      const uploadResult = await uploadToCloudinary(req.file.buffer);
-
-      let transcription = null;
-      if (req.body.includeSubtitles === 'true' && speechClient) {
-        console.log('Getting transcription...');
-        transcription = await getTranscription(uploadResult.secure_url, startTime, duration);
-      }
-
-      console.log('Creating GIF...');
-      const gifUrl = await createGIF(
-        uploadResult.public_id,
-        startTime,
-        duration,
-        transcription
-      );
-
-      res.json({
-        success: true,
-        gifUrl,
-        transcription,
-        metadata: {
-          duration,
-          startTime,
-          endTime,
-          originalSize: req.file.size,
-          processedAt: new Date().toISOString()
-        }
-      });
-
-    } catch (error) {
-      console.error('Conversion error:', error);
-      res.status(500).json({
-        error: 'Conversion failed',
-        message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
-      });
+    } catch (transcribeError) {
+      console.warn('Transcription failed:', transcribeError.message);
     }
-  });
+
+    // Create GIF with optional subtitles
+    await createGIF(tempFilePath, startTime, duration, transcription, outputPath);
+
+    // Clean up temporary files
+    if (tempFilePath && fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
+    if (outputAudioPath && fs.existsSync(outputAudioPath)) fs.unlinkSync(outputAudioPath);
+
+    res.json({
+      gifUrl: `/output/${outputFilename}`,
+      transcription: transcription,
+    });
+  } catch (err) {
+    // Clean up files in case of an error
+    if (tempFilePath && fs.existsSync(tempFilePath)) {
+      try {
+        fs.unlinkSync(tempFilePath);
+      } catch (cleanupError) {
+        console.error('Error cleaning up temp file:', cleanupError);
+      }
+    }
+    if (outputAudioPath && fs.existsSync(outputAudioPath)) {
+      try {
+        fs.unlinkSync(outputAudioPath);
+      } catch (cleanupError) {
+        console.error('Error cleaning up audio file:', cleanupError);
+      }
+    }
+
+    console.error('Error during processing:', err);
+    res.status(500).json({ message: err.message || 'Error during processing' });
+  }
 });
 
-// Health check endpoint with enhanced information
-app.get("/health", (req, res) => {
-  res.json({
-    status: "healthy",
-    timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV,
-    services: {
-      cloudinary: !!cloudinary.config().cloud_name,
-      speechToText: !!speechClient
-    }
-  });
-});
-
+// Health check endpoint
 app.get("/", (req, res) => {
-  res.send("GIF Converter API is running!");
+  res.send("Server is running!");
 });
 
-// Enhanced error handling middleware
-app.use((err, req, res, next) => {
-  console.error('Unhandled error:', err);
-  res.status(500).json({
-    error: 'Something broke!',
-    message: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error',
-    timestamp: new Date().toISOString()
-  });
+// Catch-all for undefined routes
+app.use((req, res) => {
+  res.status(404).send("Route not found");
 });
 
+// Start the server
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`Server is running on port ${PORT}`);
 });
-
-export default app;
