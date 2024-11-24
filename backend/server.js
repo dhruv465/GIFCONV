@@ -4,8 +4,7 @@ import multer from 'multer';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { FFmpeg } from '@ffmpeg/ffmpeg';
-import { fetchFile, toBlobURL } from '@ffmpeg/util';
+import ffmpeg from 'fluent-ffmpeg';
 import { SpeechClient } from '@google-cloud/speech';
 import cors from 'cors';
 
@@ -13,25 +12,22 @@ import cors from 'cors';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Set FFmpeg path for Vercel environment
+if (process.env.LD_LIBRARY_PATH != null) {
+  const ffmpegPath = path.join(process.env.LD_LIBRARY_PATH, 'ffmpeg');
+  const ffprobePath = path.join(process.env.LD_LIBRARY_PATH, 'ffprobe');
+  ffmpeg.setFfmpegPath(ffmpegPath);
+  ffmpeg.setFfprobePath(ffprobePath);
+}
+
 dotenv.config();
 const app = express();
-
-// Initialize FFmpeg
-const ffmpeg = new FFmpeg();
-// Load FFmpeg
-const ffmpegLoadPromise = (async () => {
-  const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.4/dist/umd';
-  await ffmpeg.load({
-    coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
-    wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm')
-  });
-})();
 
 // Enable CORS and JSON parsing
 app.use(cors({
   origin: '*',
   methods: ['GET', 'POST'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Cross-Origin-Opener-Policy', 'Cross-Origin-Embedder-Policy']
+  allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
 app.use(express.json());
@@ -51,34 +47,19 @@ if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir);
 // Google Cloud Speech-to-Text client
 const speechClient = new SpeechClient();
 
-// Helper function to extract audio from video using WebAssembly FFmpeg
-const extractAudio = async (videoPath, startTime, duration, outputAudioPath) => {
-  await ffmpegLoadPromise; // Ensure FFmpeg is loaded
-  
-  const inputData = await fetchFile(videoPath);
-  const inputFileName = `input${path.extname(videoPath)}`;
-  const outputFileName = 'output.mp3';
-  
-  await ffmpeg.writeFile(inputFileName, inputData);
-  
-  await ffmpeg.exec([
-    '-i', inputFileName,
-    '-ss', startTime.toString(),
-    '-t', duration.toString(),
-    '-vn',
-    '-acodec', 'libmp3lame',
-    '-ab', '128k',
-    outputFileName
-  ]);
-  
-  const audioData = await ffmpeg.readFile(outputFileName);
-  fs.writeFileSync(outputAudioPath, audioData);
-  
-  // Cleanup
-  await ffmpeg.deleteFile(inputFileName);
-  await ffmpeg.deleteFile(outputFileName);
-  
-  return outputAudioPath;
+// Helper function to extract audio from video
+const extractAudio = (videoPath, startTime, duration, outputAudioPath) => {
+  return new Promise((resolve, reject) => {
+    ffmpeg(videoPath)
+      .setStartTime(startTime)
+      .setDuration(duration)
+      .toFormat('mp3')
+      .audioCodec('libmp3lame')
+      .audioBitrate('128k')
+      .on('end', () => resolve(outputAudioPath))
+      .on('error', reject)
+      .save(outputAudioPath);
+  });
 };
 
 // Helper function to transcribe audio using Google Cloud Speech-to-Text
@@ -111,35 +92,36 @@ const transcribeAudio = async (audioFilePath) => {
 };
 
 // Helper function to create GIF with subtitles
-const createGIF = async (videoPath, startTime, duration, transcription, outputPath) => {
-  await ffmpegLoadPromise; // Ensure FFmpeg is loaded
-  
-  const inputData = await fetchFile(videoPath);
-  const inputFileName = `input${path.extname(videoPath)}`;
-  const outputFileName = 'output.gif';
-  
-  await ffmpeg.writeFile(inputFileName, inputData);
-  
-  const filterComplex = transcription
-    ? `fps=10,scale=2160:-1:flags=lanczos,drawtext=text='${transcription}':fontcolor=white:fontsize=20:x=(w-text_w)/2:y=h-(text_h*2):box=1:boxcolor=black@0.5:boxborderw=5`
-    : 'fps=10,scale=2160:-1:flags=lanczos';
-  
-  await ffmpeg.exec([
-    '-i', inputFileName,
-    '-ss', startTime.toString(),
-    '-t', duration.toString(),
-    '-vf', filterComplex,
-    outputFileName
-  ]);
-  
-  const gifData = await ffmpeg.readFile(outputFileName);
-  fs.writeFileSync(outputPath, gifData);
-  
-  // Cleanup
-  await ffmpeg.deleteFile(inputFileName);
-  await ffmpeg.deleteFile(outputFileName);
-  
-  return outputPath;
+const createGIF = (videoPath, startTime, duration, transcription, outputPath) => {
+  return new Promise((resolve, reject) => {
+    const command = ffmpeg(videoPath)
+      .setStartTime(startTime)
+      .setDuration(duration)
+      .fps(10)
+      .size('2160x?')
+      .toFormat('gif');
+    
+    if (transcription) {
+      command.videoFilters({
+        filter: 'drawtext',
+        options: {
+          text: transcription,
+          fontcolor: 'white',
+          fontsize: 20,
+          x: '(w-text_w)/2',
+          y: 'h-(text_h*2)',
+          box: 1,
+          boxcolor: 'black@0.5',
+          boxborderw: 5
+        }
+      });
+    }
+    
+    command
+      .on('end', () => resolve(outputPath))
+      .on('error', reject)
+      .save(outputPath);
+  });
 };
 
 // Route for converting uploaded video to GIF
