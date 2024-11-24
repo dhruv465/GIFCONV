@@ -14,32 +14,25 @@ const __dirname = path.dirname(__filename);
 
 // Set FFmpeg path for Vercel environment
 const ffmpegSetup = () => {
-  // For Vercel environment
-  if (process.env.VERCEL) {
-    // FFmpeg binaries should be in the project root under 'ffmpeg-static'
-    const ffmpegPath = path.join(process.cwd(), 'ffmpeg-static/ffmpeg');
-    const ffprobePath = path.join(process.cwd(), 'ffmpeg-static/ffprobe');
-    
-    if (fs.existsSync(ffmpegPath) && fs.existsSync(ffprobePath)) {
-      ffmpeg.setFfmpegPath(ffmpegPath);
-      ffmpeg.setFfprobePath(ffprobePath);
-      console.log('FFmpeg paths set successfully:', { ffmpegPath, ffprobePath });
-    } else {
-      console.error('FFmpeg binaries not found in expected location');
-    }
-  } else {
-    // For local development, assuming FFmpeg is installed globally
-    try {
-      const ffmpegPath = require('ffmpeg-static');
-      const ffprobePath = require('ffprobe-static').path;
-      ffmpeg.setFfmpegPath(ffmpegPath);
-      ffmpeg.setFfprobePath(ffprobePath);
-      console.log('FFmpeg paths set from node modules');
-    } catch (error) {
-      console.error('Error setting FFmpeg paths:', error);
-    }
+  try {
+    // Load paths from `ffmpeg-static` and `ffprobe-static`
+    const ffmpegPath = require('ffmpeg-static');
+    const ffprobePath = require('ffprobe-static').path;
+
+    // Set paths for `fluent-ffmpeg`
+    ffmpeg.setFfmpegPath(ffmpegPath);
+    ffmpeg.setFfprobePath(ffprobePath);
+
+    console.log('FFmpeg and FFprobe paths set successfully:', {
+      ffmpegPath,
+      ffprobePath,
+    });
+  } catch (error) {
+    console.error('Error setting FFmpeg and FFprobe paths:', error);
+    throw new Error('FFmpeg or FFprobe binaries not found. Install `ffmpeg-static` and `ffprobe-static`.');
   }
 };
+
 
 // Initialize FFmpeg paths
 ffmpegSetup();
