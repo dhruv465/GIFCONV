@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "main": "server.js",
   "scripts": {
+    "build": "react-scripts build",
+    "start": "node server.js",
+    "dev": "react-scripts start",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
