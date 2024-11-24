@@ -4,7 +4,8 @@ import multer from 'multer';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { createFFmpeg, fetchFile } from '@ffmpeg/ffmpeg';
+import { FFmpeg } from '@ffmpeg/ffmpeg';
+import { fetchFile, toBlobURL } from '@ffmpeg/util';
 import { SpeechClient } from '@google-cloud/speech';
 import cors from 'cors';
 
@@ -16,15 +17,21 @@ dotenv.config();
 const app = express();
 
 // Initialize FFmpeg
-const ffmpeg = createFFmpeg({ log: true });
+const ffmpeg = new FFmpeg();
 // Load FFmpeg
-let ffmpegLoadPromise = ffmpeg.load();
+const ffmpegLoadPromise = (async () => {
+  const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.4/dist/umd';
+  await ffmpeg.load({
+    coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
+    wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm')
+  });
+})();
 
 // Enable CORS and JSON parsing
 app.use(cors({
   origin: '*',
   methods: ['GET', 'POST'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization', 'Cross-Origin-Opener-Policy', 'Cross-Origin-Embedder-Policy']
 }));
 
 app.use(express.json());
@@ -48,12 +55,13 @@ const speechClient = new SpeechClient();
 const extractAudio = async (videoPath, startTime, duration, outputAudioPath) => {
   await ffmpegLoadPromise; // Ensure FFmpeg is loaded
   
+  const inputData = await fetchFile(videoPath);
   const inputFileName = `input${path.extname(videoPath)}`;
   const outputFileName = 'output.mp3';
   
-  ffmpeg.FS('writeFile', inputFileName, await fetchFile(videoPath));
+  await ffmpeg.writeFile(inputFileName, inputData);
   
-  await ffmpeg.run(
+  await ffmpeg.exec([
     '-i', inputFileName,
     '-ss', startTime.toString(),
     '-t', duration.toString(),
@@ -61,14 +69,14 @@ const extractAudio = async (videoPath, startTime, duration, outputAudioPath) => 
     '-acodec', 'libmp3lame',
     '-ab', '128k',
     outputFileName
-  );
+  ]);
   
-  const audioData = ffmpeg.FS('readFile', outputFileName);
+  const audioData = await ffmpeg.readFile(outputFileName);
   fs.writeFileSync(outputAudioPath, audioData);
   
   // Cleanup
-  ffmpeg.FS('unlink', inputFileName);
-  ffmpeg.FS('unlink', outputFileName);
+  await ffmpeg.deleteFile(inputFileName);
+  await ffmpeg.deleteFile(outputFileName);
   
   return outputAudioPath;
 };
@@ -106,29 +114,30 @@ const transcribeAudio = async (audioFilePath) => {
 const createGIF = async (videoPath, startTime, duration, transcription, outputPath) => {
   await ffmpegLoadPromise; // Ensure FFmpeg is loaded
   
+  const inputData = await fetchFile(videoPath);
   const inputFileName = `input${path.extname(videoPath)}`;
   const outputFileName = 'output.gif';
   
-  ffmpeg.FS('writeFile', inputFileName, await fetchFile(videoPath));
+  await ffmpeg.writeFile(inputFileName, inputData);
   
   const filterComplex = transcription
     ? `fps=10,scale=2160:-1:flags=lanczos,drawtext=text='${transcription}':fontcolor=white:fontsize=20:x=(w-text_w)/2:y=h-(text_h*2):box=1:boxcolor=black@0.5:boxborderw=5`
     : 'fps=10,scale=2160:-1:flags=lanczos';
   
-  await ffmpeg.run(
+  await ffmpeg.exec([
     '-i', inputFileName,
     '-ss', startTime.toString(),
     '-t', duration.toString(),
     '-vf', filterComplex,
     outputFileName
-  );
+  ]);
   
-  const gifData = ffmpeg.FS('readFile', outputFileName);
+  const gifData = await ffmpeg.readFile(outputFileName);
   fs.writeFileSync(outputPath, gifData);
   
   // Cleanup
-  ffmpeg.FS('unlink', inputFileName);
-  ffmpeg.FS('unlink', outputFileName);
+  await ffmpeg.deleteFile(inputFileName);
+  await ffmpeg.deleteFile(outputFileName);
   
   return outputPath;
 };
