@@ -122,6 +122,7 @@ const VideoGifConverter = () => {
                     href={gifUrl}
                     download="converted.gif"
                     className="flex items-center gap-2 px-6 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors"
+                    target="__blank"
                   >
                     Download GIF
                   </a>
