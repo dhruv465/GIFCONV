@@ -10,7 +10,11 @@ const cors = require('cors');
 const app = express();
 
 // Enable CORS and JSON parsing
-app.use(cors()); // Allow all origins
+app.use(cors({
+  origin: '*', // Allow all origins
+  methods: ['GET', 'POST'], // Ensure these methods are allowed
+  allowedHeaders: ['Content-Type', 'Authorization'] // Adjust headers if needed
+}));
 
 app.use(express.json());
 
