@@ -21,6 +21,7 @@
     "cloudinary": "^2.5.1",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
+    "dotenv-extended": "^2.9.0",
     "express": "^4.21.1",
     "ffmpeg-static": "^5.2.0",
     "ffprobe-static": "^3.1.0",
