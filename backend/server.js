@@ -11,15 +11,11 @@ const cors = require('cors');
 const app = express();
 
 // Enable CORS and JSON parsing
-
-// Allow requests from the specific frontend domain
-const corsOptions = {
-  origin: 'https://video-to-gif-kohl.vercel.app', // Replace with your frontend's URL
+app.use(cors({
+  origin: 'https://video-to-gif-kohl.vercel.app', // Your frontend URL
   methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
-  credentials: true, // Allow cookies if needed
-};
-
-app.use(cors(corsOptions));
+  credentials: true, // If you need to send cookies
+}));
 app.use(express.json());
 
 // Serve static files (for accessing generated GIFs)
