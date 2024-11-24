@@ -11,7 +11,7 @@ const app = express();
 
 // Enable CORS and JSON parsing
 app.use(cors({
-  origin: 'http://localhost:5000', // Allow localhost for development, change to frontend URL in production
+  origin: 'http://localhost:5000',
 }));
 app.use(express.json());
 
@@ -178,7 +178,8 @@ app.post('/convert', upload.single('video'), async (req, res) => {
   }
 });
 
-// Export the handler for Vercel (Serverless)
-module.exports = (req, res) => {
-  app(req, res); // Express handler for Vercel serverless
-};
+// Start the server
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => {
+  console.log(`Server is running on port ${PORT}`);
+});
