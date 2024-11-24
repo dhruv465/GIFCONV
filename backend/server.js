@@ -4,7 +4,7 @@ import multer from 'multer';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import ffmpeg from 'fluent-ffmpeg';
+import { createFFmpeg, fetchFile } from '@ffmpeg/ffmpeg';
 import { SpeechClient } from '@google-cloud/speech';
 import cors from 'cors';
 
@@ -14,6 +14,11 @@ const __dirname = path.dirname(__filename);
 
 dotenv.config();
 const app = express();
+
+// Initialize FFmpeg
+const ffmpeg = createFFmpeg({ log: true });
+// Load FFmpeg
+let ffmpegLoadPromise = ffmpeg.load();
 
 // Enable CORS and JSON parsing
 app.use(cors({
@@ -39,19 +44,33 @@ if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir);
 // Google Cloud Speech-to-Text client
 const speechClient = new SpeechClient();
 
-// Helper function to extract audio from video
-const extractAudio = (videoPath, startTime, duration, outputAudioPath) => {
-  return new Promise((resolve, reject) => {
-    ffmpeg(videoPath)
-      .setStartTime(startTime)
-      .setDuration(duration)
-      .audioCodec('libmp3lame')
-      .audioBitrate('128k')
-      .output(outputAudioPath)
-      .on('end', () => resolve(outputAudioPath))
-      .on('error', (err) => reject(err))
-      .run();
-  });
+// Helper function to extract audio from video using WebAssembly FFmpeg
+const extractAudio = async (videoPath, startTime, duration, outputAudioPath) => {
+  await ffmpegLoadPromise; // Ensure FFmpeg is loaded
+  
+  const inputFileName = `input${path.extname(videoPath)}`;
+  const outputFileName = 'output.mp3';
+  
+  ffmpeg.FS('writeFile', inputFileName, await fetchFile(videoPath));
+  
+  await ffmpeg.run(
+    '-i', inputFileName,
+    '-ss', startTime.toString(),
+    '-t', duration.toString(),
+    '-vn',
+    '-acodec', 'libmp3lame',
+    '-ab', '128k',
+    outputFileName
+  );
+  
+  const audioData = ffmpeg.FS('readFile', outputFileName);
+  fs.writeFileSync(outputAudioPath, audioData);
+  
+  // Cleanup
+  ffmpeg.FS('unlink', inputFileName);
+  ffmpeg.FS('unlink', outputFileName);
+  
+  return outputAudioPath;
 };
 
 // Helper function to transcribe audio using Google Cloud Speech-to-Text
@@ -83,16 +102,35 @@ const transcribeAudio = async (audioFilePath) => {
   }
 };
 
-// Helper function to add subtitles to GIF
-const addSubtitlesToGIF = (gifPath, transcription, outputPath) => {
-  return new Promise((resolve, reject) => {
-    const filter = `drawtext=text='${transcription}':fontcolor=white:fontsize=20:x=(w-text_w)/2:y=h-(text_h*2):box=1:boxcolor=black@0.5:boxborderw=5`;
-    ffmpeg(gifPath)
-      .outputOptions('-vf', filter)
-      .save(outputPath)
-      .on('end', () => resolve(outputPath))
-      .on('error', reject);
-  });
+// Helper function to create GIF with subtitles
+const createGIF = async (videoPath, startTime, duration, transcription, outputPath) => {
+  await ffmpegLoadPromise; // Ensure FFmpeg is loaded
+  
+  const inputFileName = `input${path.extname(videoPath)}`;
+  const outputFileName = 'output.gif';
+  
+  ffmpeg.FS('writeFile', inputFileName, await fetchFile(videoPath));
+  
+  const filterComplex = transcription
+    ? `fps=10,scale=2160:-1:flags=lanczos,drawtext=text='${transcription}':fontcolor=white:fontsize=20:x=(w-text_w)/2:y=h-(text_h*2):box=1:boxcolor=black@0.5:boxborderw=5`
+    : 'fps=10,scale=2160:-1:flags=lanczos';
+  
+  await ffmpeg.run(
+    '-i', inputFileName,
+    '-ss', startTime.toString(),
+    '-t', duration.toString(),
+    '-vf', filterComplex,
+    outputFileName
+  );
+  
+  const gifData = ffmpeg.FS('readFile', outputFileName);
+  fs.writeFileSync(outputPath, gifData);
+  
+  // Cleanup
+  ffmpeg.FS('unlink', inputFileName);
+  ffmpeg.FS('unlink', outputFileName);
+  
+  return outputPath;
 };
 
 // Route for converting uploaded video to GIF
@@ -117,9 +155,9 @@ app.post('/convert', upload.single('video'), async (req, res) => {
     const audioFilename = `audio_${Date.now()}.mp3`;
     outputAudioPath = path.join(outputDir, audioFilename);
 
-    // Extract audio from the video
+    // Extract audio and get transcription
     await extractAudio(tempFilePath, startTime, duration, outputAudioPath);
-
+    
     let transcription = null;
     try {
       if (fs.existsSync(outputAudioPath) && fs.statSync(outputAudioPath).size > 0) {
@@ -135,31 +173,12 @@ app.post('/convert', upload.single('video'), async (req, res) => {
       console.warn('Transcription failed:', transcribeError.message);
     }
 
-    // Generate GIF from the video
-    const tempGifPath = path.join(outputDir, `temp_${Date.now()}.gif`);
-    await new Promise((resolve, reject) => {
-      ffmpeg(tempFilePath)
-        .setStartTime(startTime)
-        .setDuration(duration)
-        .outputOptions('-vf', 'fps=10,scale=2160:-1:flags=lanczos')
-        .toFormat('gif')
-        .save(tempGifPath)
-        .on('end', resolve)
-        .on('error', reject);
-    });
-
-    // Add subtitles to the GIF
-    if (transcription) {
-      await addSubtitlesToGIF(tempGifPath, transcription, outputPath);
-    } else {
-      // If no transcription, just rename the temp GIF
-      fs.renameSync(tempGifPath, outputPath);
-    }
+    // Create GIF with optional subtitles
+    await createGIF(tempFilePath, startTime, duration, transcription, outputPath);
 
     // Clean up temporary files
     if (tempFilePath && fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
     if (outputAudioPath && fs.existsSync(outputAudioPath)) fs.unlinkSync(outputAudioPath);
-    if (tempGifPath && fs.existsSync(tempGifPath)) fs.unlinkSync(tempGifPath);
 
     res.json({
       gifUrl: `/output/${outputFilename}`,
