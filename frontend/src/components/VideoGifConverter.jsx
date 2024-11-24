@@ -1,4 +1,3 @@
-// VideoGifConverter.jsx
 import React, { useState } from 'react';
 import { Video, Wand2 } from 'lucide-react';
 import FileUpload from './FileUpload';
@@ -41,6 +40,7 @@ const VideoGifConverter = () => {
         method: 'POST',
         body: formData,
       });
+
       const data = await response.json();
 
       if (response.ok) {
