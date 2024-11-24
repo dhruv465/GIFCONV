@@ -5,6 +5,8 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import ffmpeg from 'fluent-ffmpeg';
+import ffmpegPath from 'ffmpeg-static';
+import ffprobePath from 'ffprobe-static';
 import { SpeechClient } from '@google-cloud/speech';
 import cors from 'cors';
 
@@ -12,20 +14,15 @@ import cors from 'cors';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Set FFmpeg path for Vercel environment
 const ffmpegSetup = () => {
   try {
-    // Load paths from `ffmpeg-static` and `ffprobe-static`
-    const ffmpegPath = require('ffmpeg-static');
-    const ffprobePath = require('ffprobe-static').path;
-
     // Set paths for `fluent-ffmpeg`
     ffmpeg.setFfmpegPath(ffmpegPath);
-    ffmpeg.setFfprobePath(ffprobePath);
+    ffmpeg.setFfprobePath(ffprobePath.path);
 
     console.log('FFmpeg and FFprobe paths set successfully:', {
       ffmpegPath,
-      ffprobePath,
+      ffprobePath: ffprobePath.path,
     });
   } catch (error) {
     console.error('Error setting FFmpeg and FFprobe paths:', error);
@@ -33,8 +30,7 @@ const ffmpegSetup = () => {
   }
 };
 
-
-// Initialize FFmpeg paths
+// Initialize FFmpeg and FFprobe paths
 ffmpegSetup();
 
 dotenv.config();
