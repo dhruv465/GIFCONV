@@ -48,13 +48,14 @@ ffmpegSetup();
 dotenv.config();
 const app = express();
 
-// Enable CORS and JSON parsing
+// Configure CORS middleware
 app.use(cors({
-  origin: '*',
-  methods: ['GET', 'POST'],
+  origin: 'https://video-to-gif-kohl.vercel.app',  // Allow only your frontend domain
+  methods: ['GET', 'POST', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
+// Set up body parsing middleware
 app.use(express.json());
 
 // Serve static files (for accessing generated GIFs)
