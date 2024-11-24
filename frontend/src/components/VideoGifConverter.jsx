@@ -37,14 +37,14 @@ const VideoGifConverter = () => {
     formData.append('endTime', trimPoints.end.toString());
 
     try {
-      const response = await fetch('http://localhost:5000/convert', {
+      const response = await fetch('https://gifconv-backend.vercel.app/convert', {
         method: 'POST',
         body: formData,
       });
       const data = await response.json();
 
       if (response.ok) {
-        setGifUrl(`http://localhost:5000${data.gifUrl}`);
+        setGifUrl(`https://gifconv-backend.vercel.app${data.gifUrl}`);
       } else {
         alert(data.message || 'Error processing video');
       }
