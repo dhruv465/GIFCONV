@@ -3,7 +3,7 @@ const express = require('express');
 const multer = require('multer');
 const fs = require('fs');
 const path = require('path');
-const { createFFmpeg, fetchFile } = require('@ffmpeg/ffmpeg'); // Import ffmpeg.wasm
+const ffmpeg = require('fluent-ffmpeg');
 const { SpeechClient } = require('@google-cloud/speech');
 const cors = require('cors');
 
@@ -11,12 +11,13 @@ const app = express();
 
 // Enable CORS and JSON parsing
 app.use(cors({
-  origin: '*', 
-  methods: ['GET', 'POST'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  origin: '*', // Allow all origins
+  methods: ['GET', 'POST'], // Ensure these methods are allowed
+  allowedHeaders: ['Content-Type', 'Authorization'] // Adjust headers if needed
 }));
 
 app.use(express.json());
+
 
 // Serve static files (for accessing generated GIFs)
 app.use('/output', express.static(path.join('/tmp', 'output')));
@@ -33,21 +34,19 @@ if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir);
 // Google Cloud Speech-to-Text client
 const speechClient = new SpeechClient();
 
-// Initialize ffmpeg.wasm
-const ffmpeg = createFFmpeg({ log: true });
-
-const extractAudio = async (videoPath, startTime, duration, outputAudioPath) => {
-  await ffmpeg.load(); // Load the ffmpeg.wasm instance
-
-  // Fetch the video file into ffmpeg's virtual filesystem
-  await ffmpeg.FS('writeFile', 'input.mp4', await fetchFile(videoPath));
-
-  // Run ffmpeg to extract audio
-  await ffmpeg.run('-i', 'input.mp4', '-ss', startTime, '-t', duration, '-vn', '-acodec', 'libmp3lame', '-ab', '128k', 'output.mp3');
-
-  // Retrieve the processed audio file
-  const audioData = ffmpeg.FS('readFile', 'output.mp3');
-  fs.writeFileSync(outputAudioPath, Buffer.from(audioData));
+// Helper function to extract audio from video
+const extractAudio = (videoPath, startTime, duration, outputAudioPath) => {
+  return new Promise((resolve, reject) => {
+    ffmpeg(videoPath)
+      .setStartTime(startTime)
+      .setDuration(duration)
+      .audioCodec('libmp3lame')
+      .audioBitrate('128k')
+      .output(outputAudioPath)
+      .on('end', () => resolve(outputAudioPath))
+      .on('error', (err) => reject(err))
+      .run();
+  });
 };
 
 // Helper function to transcribe audio using Google Cloud Speech-to-Text
@@ -191,7 +190,6 @@ app.get("/", (req, res) => {
 app.use((req, res) => {
   res.status(404).send("Route not found");
 });
-
 // Start the server
 const PORT = process.env.PORT || 3000; // Let Vercel choose the port
 app.listen(PORT, () => {
