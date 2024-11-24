@@ -1,8 +1,8 @@
 // VideoGifConverter.jsx
-import React, { useState } from 'react';
-import { Video, Wand2 } from 'lucide-react';
-import FileUpload from './FileUpload';
-import VideoTrimmer from './VideoTrimmer';
+import React, { useState } from "react";
+import { Video, Wand2 } from "lucide-react";
+import FileUpload from "./FileUpload";
+import VideoTrimmer from "./VideoTrimmer";
 
 const VideoGifConverter = () => {
   const [selectedFile, setSelectedFile] = useState(null);
@@ -28,29 +28,29 @@ const VideoGifConverter = () => {
     const formData = new FormData();
 
     if (selectedFile) {
-      formData.append('video', selectedFile);
+      formData.append("video", selectedFile);
     } else if (youtubeUrl) {
-      formData.append('youtubeUrl', youtubeUrl);
+      formData.append("youtubeUrl", youtubeUrl);
     }
 
-    formData.append('startTime', trimPoints.start.toString());
-    formData.append('endTime', trimPoints.end.toString());
+    formData.append("startTime", trimPoints.start.toString());
+    formData.append("endTime", trimPoints.end.toString());
 
     try {
-      const response = await fetch('http://localhost:5000/convert', {
-        method: 'POST',
+      const response = await fetch("https://gifconv.vercel.app/convert", {
+        method: "POST",
         body: formData,
       });
       const data = await response.json();
 
       if (response.ok) {
-        setGifUrl(`http://localhost:5000${data.gifUrl}`);
+        setGifUrl(`https://gifconv.vercel.app${data.gifUrl}`);
       } else {
-        alert(data.message || 'Error processing video');
+        alert(data.message || "Error processing video");
       }
     } catch (error) {
-      console.error('Conversion failed:', error);
-      alert('Failed to convert video');
+      console.error("Conversion failed:", error);
+      alert("Failed to convert video");
     } finally {
       setIsProcessing(false);
     }
@@ -65,8 +65,12 @@ const VideoGifConverter = () => {
             <div className="flex items-center justify-center mb-4">
               <Video className="w-12 h-12 text-indigo-600" />
             </div>
-            <h1 className="text-4xl font-bold text-gray-900 mb-4">Video to GIF Converter</h1>
-            <p className="text-lg text-gray-600">Transform your videos into high-quality GIFs</p>
+            <h1 className="text-4xl font-bold text-gray-900 mb-4">
+              Video to GIF Converter
+            </h1>
+            <p className="text-lg text-gray-600">
+              Transform your videos into high-quality GIFs
+            </p>
           </div>
 
           <div className="space-y-8">
@@ -95,7 +99,7 @@ const VideoGifConverter = () => {
                   className="flex items-center gap-2 px-8 py-3 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-lg hover:from-blue-600 hover:to-indigo-700 transition-all shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <Wand2 className="w-5 h-5" />
-                  {isProcessing ? 'Converting...' : 'Convert to GIF'}
+                  {isProcessing ? "Converting..." : "Convert to GIF"}
                 </button>
               </div>
             )}
@@ -103,9 +107,15 @@ const VideoGifConverter = () => {
             {/* Generated GIF Display */}
             {gifUrl && (
               <div className="bg-white rounded-xl p-6 shadow-lg">
-                <h3 className="text-lg font-semibold mb-4">Your Generated GIF</h3>
+                <h3 className="text-lg font-semibold mb-4">
+                  Your Generated GIF
+                </h3>
                 <div className="aspect-video bg-gray-100 rounded-lg overflow-hidden">
-                  <img src={gifUrl} alt="Generated GIF" className="w-full h-full object-contain" />
+                  <img
+                    src={gifUrl}
+                    alt="Generated GIF"
+                    className="w-full h-full object-contain"
+                  />
                 </div>
                 <div className="mt-4 flex justify-end">
                   <a

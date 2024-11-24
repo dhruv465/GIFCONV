@@ -11,7 +11,7 @@ const app = express();
 
 // Enable CORS and JSON parsing
 app.use(cors({
-  origin: 'http://localhost:5000',
+  origin: 'https://video-to-gif-kohl.vercel.app',
 }));
 app.use(express.json());
 
