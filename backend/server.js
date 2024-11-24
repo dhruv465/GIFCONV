@@ -1,5 +1,4 @@
 require('dotenv').config();
-
 const express = require('express');
 const multer = require('multer');
 const fs = require('fs');
@@ -12,9 +11,7 @@ const app = express();
 
 // Enable CORS and JSON parsing
 app.use(cors({
-  origin: 'https://video-to-gif-kohl.vercel.app', // Your frontend URL
-  methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
-  credentials: true, // If you need to send cookies
+  origin: 'https://video-to-gif-kohl.vercel.app',
 }));
 app.use(express.json());
 
