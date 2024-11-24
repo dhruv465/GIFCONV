@@ -1,23 +1,28 @@
-require('dotenv').config();
-const express = require('express');
-const multer = require('multer');
-const fs = require('fs');
-const path = require('path');
-const ffmpeg = require('fluent-ffmpeg');
-const { SpeechClient } = require('@google-cloud/speech');
-const cors = require('cors');
+import dotenv from 'dotenv';
+import express from 'express';
+import multer from 'multer';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import ffmpeg from 'fluent-ffmpeg';
+import { SpeechClient } from '@google-cloud/speech';
+import cors from 'cors';
 
+// ES modules fix for __dirname
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+dotenv.config();
 const app = express();
 
 // Enable CORS and JSON parsing
 app.use(cors({
-  origin: '*', // Allow all origins
-  methods: ['GET', 'POST'], // Ensure these methods are allowed
-  allowedHeaders: ['Content-Type', 'Authorization'] // Adjust headers if needed
+  origin: '*',
+  methods: ['GET', 'POST'],
+  allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
 app.use(express.json());
-
 
 // Serve static files (for accessing generated GIFs)
 app.use('/output', express.static(path.join('/tmp', 'output')));
@@ -190,8 +195,9 @@ app.get("/", (req, res) => {
 app.use((req, res) => {
   res.status(404).send("Route not found");
 });
+
 // Start the server
-const PORT = process.env.PORT || 3000; // Let Vercel choose the port
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
