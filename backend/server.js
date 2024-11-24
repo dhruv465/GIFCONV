@@ -1,50 +1,26 @@
 import dotenv from 'dotenv';
 import express from 'express';
 import multer from 'multer';
-import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import ffmpeg from 'fluent-ffmpeg';
-import { SpeechClient } from '@google-cloud/speech';
 import cors from 'cors';
+import { v2 as cloudinary } from 'cloudinary';
+import { SpeechClient } from '@google-cloud/speech';
+import streamifier from 'streamifier';
 
 // ES modules fix for __dirname
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Set FFmpeg path for Vercel environment
-const ffmpegSetup = () => {
-  // For Vercel environment
-  if (process.env.VERCEL) {
-    // FFmpeg binaries should be in the project root under 'ffmpeg-static'
-    const ffmpegPath = path.join(process.cwd(), 'ffmpeg-static/ffmpeg');
-    const ffprobePath = path.join(process.cwd(), 'ffmpeg-static/ffprobe');
-    
-    if (fs.existsSync(ffmpegPath) && fs.existsSync(ffprobePath)) {
-      ffmpeg.setFfmpegPath(ffmpegPath);
-      ffmpeg.setFfprobePath(ffprobePath);
-      console.log('FFmpeg paths set successfully:', { ffmpegPath, ffprobePath });
-    } else {
-      console.error('FFmpeg binaries not found in expected location');
-    }
-  } else {
-    // For local development, assuming FFmpeg is installed globally
-    try {
-      const ffmpegPath = require('ffmpeg-static');
-      const ffprobePath = require('ffprobe-static').path;
-      ffmpeg.setFfmpegPath(ffmpegPath);
-      ffmpeg.setFfprobePath(ffprobePath);
-      console.log('FFmpeg paths set from node modules');
-    } catch (error) {
-      console.error('Error setting FFmpeg paths:', error);
-    }
-  }
-};
-
-// Initialize FFmpeg paths
-ffmpegSetup();
-
 dotenv.config();
+
+// Configure Cloudinary
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET
+});
+
 const app = express();
 
 // Enable CORS and JSON parsing
@@ -56,44 +32,63 @@ app.use(cors({
 
 app.use(express.json());
 
-// Serve static files (for accessing generated GIFs)
-app.use('/output', express.static(path.join('/tmp', 'output')));
-
-// Setup multer for file uploads (use /tmp for temporary storage)
-const upload = multer({ dest: '/tmp/uploads' });
-
-// Create necessary directories in /tmp
-const uploadDir = path.join('/tmp', 'uploads');
-const outputDir = path.join('/tmp', 'output');
-if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
-if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
+// Configure multer for memory storage instead of disk
+const upload = multer({ storage: multer.memoryStorage() });
 
 // Google Cloud Speech-to-Text client
 const speechClient = new SpeechClient();
 
-// Helper function to extract audio from video
-const extractAudio = (videoPath, startTime, duration, outputAudioPath) => {
+// Helper function to upload to Cloudinary
+const uploadToCloudinary = (buffer) => {
   return new Promise((resolve, reject) => {
-    ffmpeg(videoPath)
-      .setStartTime(startTime)
-      .setDuration(duration)
-      .toFormat('mp3')
-      .audioCodec('libmp3lame')
-      .audioBitrate('128k')
-      .on('end', () => resolve(outputAudioPath))
-      .on('error', reject)
-      .save(outputAudioPath);
+    const uploadStream = cloudinary.uploader.upload_stream(
+      {
+        resource_type: 'video',
+        folder: 'video-uploads'
+      },
+      (error, result) => {
+        if (error) reject(error);
+        else resolve(result);
+      }
+    );
+
+    streamifier.createReadStream(buffer).pipe(uploadStream);
+  });
+};
+
+// Helper function to create GIF using Cloudinary
+const createGIFWithCloudinary = async (publicId, startTime, duration, transcription) => {
+  const transformations = [
+    { start_offset: startTime, end_offset: startTime + duration },
+    { width: 2160 },
+    { format: 'gif' }
+  ];
+
+  if (transcription) {
+    transformations.push({
+      overlay: {
+        font_family: 'Arial',
+        font_size: 20,
+        font_weight: 'bold',
+        text: transcription,
+        color: 'white'
+      },
+      gravity: 'south',
+      y: 20
+    });
+  }
+
+  return cloudinary.url(publicId, {
+    resource_type: 'video',
+    transformation: transformations
   });
 };
 
 // Helper function to transcribe audio using Google Cloud Speech-to-Text
-const transcribeAudio = async (audioFilePath) => {
-  const audioBuffer = fs.readFileSync(audioFilePath);
-  const audioBytes = audioBuffer.toString('base64');
-
+const transcribeAudio = async (audioContent) => {
   const request = {
     audio: {
-      content: audioBytes,
+      content: audioContent.toString('base64'),
     },
     config: {
       encoding: 'MP3',
@@ -115,44 +110,9 @@ const transcribeAudio = async (audioFilePath) => {
   }
 };
 
-// Helper function to create GIF with subtitles
-const createGIF = (videoPath, startTime, duration, transcription, outputPath) => {
-  return new Promise((resolve, reject) => {
-    const command = ffmpeg(videoPath)
-      .setStartTime(startTime)
-      .setDuration(duration)
-      .fps(10)
-      .size('2160x?')
-      .toFormat('gif');
-    
-    if (transcription) {
-      command.videoFilters({
-        filter: 'drawtext',
-        options: {
-          text: transcription,
-          fontcolor: 'white',
-          fontsize: 20,
-          x: '(w-text_w)/2',
-          y: 'h-(text_h*2)',
-          box: 1,
-          boxcolor: 'black@0.5',
-          boxborderw: 5
-        }
-      });
-    }
-    
-    command
-      .on('end', () => resolve(outputPath))
-      .on('error', reject)
-      .save(outputPath);
-  });
-};
-
 // Route for converting uploaded video to GIF
 app.post('/convert', upload.single('video'), async (req, res) => {
   const { startTime, endTime } = req.body;
-  let tempFilePath = null;
-  let outputAudioPath = null;
 
   try {
     if (!req.file) {
@@ -163,67 +123,46 @@ app.post('/convert', upload.single('video'), async (req, res) => {
       return res.status(400).json({ message: 'Invalid start or end time' });
     }
 
-    tempFilePath = req.file.path;
     const duration = endTime - startTime;
-    const outputFilename = `output_${Date.now()}.gif`;
-    const outputPath = path.join(outputDir, outputFilename);
-    const audioFilename = `audio_${Date.now()}.mp3`;
-    outputAudioPath = path.join(outputDir, audioFilename);
 
-    console.log('Processing video:', {
-      tempFilePath,
-      startTime,
-      duration,
-      outputPath,
-      outputAudioPath
+    // Upload video to Cloudinary
+    console.log('Uploading to Cloudinary...');
+    const uploadResult = await uploadToCloudinary(req.file.buffer);
+    
+    // Get audio for transcription using Cloudinary's audio extraction
+    const audioUrl = cloudinary.url(uploadResult.public_id, {
+      resource_type: 'video',
+      format: 'mp3',
+      start_offset: startTime,
+      end_offset: startTime + duration
     });
 
-    // Extract audio and get transcription
-    await extractAudio(tempFilePath, startTime, duration, outputAudioPath);
+    // Fetch audio content for transcription
+    const audioResponse = await fetch(audioUrl);
+    const audioBuffer = await audioResponse.arrayBuffer();
     
+    // Get transcription
     let transcription = null;
     try {
-      if (fs.existsSync(outputAudioPath) && fs.statSync(outputAudioPath).size > 0) {
-        console.log('Audio file extracted successfully:', {
-          path: outputAudioPath,
-          size: fs.statSync(outputAudioPath).size,
-        });
-        transcription = await transcribeAudio(outputAudioPath);
-      } else {
-        console.error('Audio file is missing or empty');
-      }
+      transcription = await transcribeAudio(Buffer.from(audioBuffer));
     } catch (transcribeError) {
       console.warn('Transcription failed:', transcribeError.message);
     }
 
-    // Create GIF with optional subtitles
-    await createGIF(tempFilePath, startTime, duration, transcription, outputPath);
-
-    // Clean up temporary files
-    if (tempFilePath && fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
-    if (outputAudioPath && fs.existsSync(outputAudioPath)) fs.unlinkSync(outputAudioPath);
+    // Create GIF URL with Cloudinary
+    const gifUrl = await createGIFWithCloudinary(
+      uploadResult.public_id,
+      startTime,
+      duration,
+      transcription
+    );
 
     res.json({
-      gifUrl: `/output/${outputFilename}`,
-      transcription: transcription,
+      gifUrl,
+      transcription,
     });
-  } catch (err) {
-    // Clean up files in case of an error
-    if (tempFilePath && fs.existsSync(tempFilePath)) {
-      try {
-        fs.unlinkSync(tempFilePath);
-      } catch (cleanupError) {
-        console.error('Error cleaning up temp file:', cleanupError);
-      }
-    }
-    if (outputAudioPath && fs.existsSync(outputAudioPath)) {
-      try {
-        fs.unlinkSync(outputAudioPath);
-      } catch (cleanupError) {
-        console.error('Error cleaning up audio file:', cleanupError);
-      }
-    }
 
+  } catch (err) {
     console.error('Error during processing:', err);
     res.status(500).json({ message: err.message || 'Error during processing' });
   }
