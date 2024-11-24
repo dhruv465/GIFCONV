@@ -8,7 +8,7 @@
     "dev": "nodemon server.js",
     "build": "echo 'No build step for backend' && exit 0",
     "test": "echo \"Error: no test specified\" && exit 1",
-    "vercel-build": "mkdir -p ffmpeg-static && cp node_modules/ffmpeg-static/ffmpeg ffmpeg-static/"
+    "vercel-build": "npm install ffmpeg-static && mkdir -p ffmpeg-static && cp \"$(node -e \"console.log(require('ffmpeg-static'));\")\" ffmpeg-static/ && cp \"$(node -e \"console.log(require('ffprobe-static').path);\")\" ffmpeg-static/"
   },
   "keywords": [],
   "author": "",
