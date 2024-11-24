@@ -13,12 +13,36 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Set FFmpeg path for Vercel environment
-if (process.env.LD_LIBRARY_PATH != null) {
-  const ffmpegPath = path.join(process.env.LD_LIBRARY_PATH, 'ffmpeg');
-  const ffprobePath = path.join(process.env.LD_LIBRARY_PATH, 'ffprobe');
-  ffmpeg.setFfmpegPath(ffmpegPath);
-  ffmpeg.setFfprobePath(ffprobePath);
-}
+const ffmpegSetup = () => {
+  // For Vercel environment
+  if (process.env.VERCEL) {
+    // FFmpeg binaries should be in the project root under 'ffmpeg-static'
+    const ffmpegPath = path.join(process.cwd(), 'ffmpeg-static/ffmpeg');
+    const ffprobePath = path.join(process.cwd(), 'ffmpeg-static/ffprobe');
+    
+    if (fs.existsSync(ffmpegPath) && fs.existsSync(ffprobePath)) {
+      ffmpeg.setFfmpegPath(ffmpegPath);
+      ffmpeg.setFfprobePath(ffprobePath);
+      console.log('FFmpeg paths set successfully:', { ffmpegPath, ffprobePath });
+    } else {
+      console.error('FFmpeg binaries not found in expected location');
+    }
+  } else {
+    // For local development, assuming FFmpeg is installed globally
+    try {
+      const ffmpegPath = require('ffmpeg-static');
+      const ffprobePath = require('ffprobe-static').path;
+      ffmpeg.setFfmpegPath(ffmpegPath);
+      ffmpeg.setFfprobePath(ffprobePath);
+      console.log('FFmpeg paths set from node modules');
+    } catch (error) {
+      console.error('Error setting FFmpeg paths:', error);
+    }
+  }
+};
+
+// Initialize FFmpeg paths
+ffmpegSetup();
 
 dotenv.config();
 const app = express();
@@ -41,8 +65,8 @@ const upload = multer({ dest: '/tmp/uploads' });
 // Create necessary directories in /tmp
 const uploadDir = path.join('/tmp', 'uploads');
 const outputDir = path.join('/tmp', 'output');
-if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
-if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir);
+if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
 
 // Google Cloud Speech-to-Text client
 const speechClient = new SpeechClient();
@@ -146,6 +170,14 @@ app.post('/convert', upload.single('video'), async (req, res) => {
     const audioFilename = `audio_${Date.now()}.mp3`;
     outputAudioPath = path.join(outputDir, audioFilename);
 
+    console.log('Processing video:', {
+      tempFilePath,
+      startTime,
+      duration,
+      outputPath,
+      outputAudioPath
+    });
+
     // Extract audio and get transcription
     await extractAudio(tempFilePath, startTime, duration, outputAudioPath);
     
@@ -192,13 +224,14 @@ app.post('/convert', upload.single('video'), async (req, res) => {
       }
     }
 
-    console.error('Error during processing:', err.message);
+    console.error('Error during processing:', err);
     res.status(500).json({ message: err.message || 'Error during processing' });
   }
 });
 
+// Health check endpoint
 app.get("/", (req, res) => {
-  res.send("Hello from Node.js on Vercel!");
+  res.send("Server is running!");
 });
 
 // Catch-all for undefined routes
