@@ -1,6 +1,5 @@
 import dotenv from 'dotenv'; // Load environment variables first
-dotenv.config();
-
+import { GoogleAuth } from 'google-auth-library'; // Import GoogleAuth for authentication
 import express from 'express';
 import multer from 'multer';
 import fs from 'fs';
@@ -15,6 +14,9 @@ import cors from 'cors';
 // ES modules fix for __dirname
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Set up dotenv and load environment variables
+dotenv.config();
 
 const ffmpegSetup = () => {
   try {
@@ -35,7 +37,6 @@ const ffmpegSetup = () => {
 // Initialize FFmpeg and FFprobe paths
 ffmpegSetup();
 
-dotenv.config();
 const app = express();
 
 // Enable CORS and JSON parsing
@@ -59,8 +60,19 @@ const outputDir = path.join('/tmp', 'output');
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
 
-// Google Cloud Speech-to-Text client
-const speechClient = new SpeechClient();
+// Get the base64-encoded Google service account credentials from the environment variable
+const base64Key = process.env.GOOGLE_APPLICATION_CREDENTIALS_BASE64;
+const jsonKey = Buffer.from(base64Key, 'base64').toString('utf8');
+const parsedKey = JSON.parse(jsonKey);
+
+// Initialize Google Cloud Speech Client with the decoded credentials
+const auth = new GoogleAuth({
+  credentials: parsedKey,
+});
+
+const speechClient = new SpeechClient({
+  auth: auth,
+});
 
 // Helper function to extract audio from video
 const extractAudio = (videoPath, startTime, duration, outputAudioPath) => {
